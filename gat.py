@@ -65,7 +65,9 @@ class GATConv(nn.Module):
         # h = torch.matmul(x, self.weight[0])
 
         out = [x]
+        h_primes = []
         for edge_list in edge_lists:
+            h1 = [x]
             x1 = self.nconv(x, edge_list)
             out.append(x1)
             for k in range(2, self.order + 1):
@@ -73,26 +75,30 @@ class GATConv(nn.Module):
                 out.append(x2)
                 x1 = x2
 
-        h = torch.cat(out, dim=1)
+            h = torch.cat(h1, dim=1)
 
-        edge_list = (edge_list > 0).nonzero().t()
-        source, target = edge_list
-        '''OOM Here'''
-        a_input = torch.cat([h[source], h[target]], dim=1)
-        e = F.leaky_relu(torch.matmul(a_input, self.a), negative_slope=self.alpha)
+            edge_list_ix = (edge_list > 0).nonzero().t()
+            source, target = edge_list_ix
+            '''OOM Here'''
+            a_input = torch.cat([h[source], h[target]], dim=1)
+            # e = F.leaky_relu(torch.matmul(a_input, self.a), negative_slope=self.alpha)
+            e = F.leaky_relu(torch.matmul(a_input, edge_list), negative_slope=self.alpha)
 
-        N = h.size(0)
-        attention = -1e20*torch.ones([N, N], device=device, requires_grad=True)
-        attention[source, target] = e[:, 0]
-        attention = F.softmax(attention, dim=1)
-        attention = F.dropout(attention, self.dropout, training=self.training)
-        h = F.dropout(h, self.dropout, training=self.training)
-        h_prime = torch.matmul(attention, h)
-        print('here')
-        if self.bias is not None:
-            h_prime = h_prime + self.bias
+            N = h.size(0)
+            attention = -1e20*torch.ones([N, N], device=device, requires_grad=True)
+            attention[source, target] = e[:, 0]
+            attention = F.softmax(attention, dim=1)
+            attention = F.dropout(attention, self.dropout, training=self.training)
+            h = F.dropout(h, self.dropout, training=self.training)
+            h_prime = torch.matmul(attention, h)
+            print('here')
+            if self.bias is not None:
+                h_prime = h_prime + self.bias
+            h_primes.append(h_prime)
 
-        return h_prime
+        h_primes = torch.cat(h_prime, dim=1)
+
+        return h_primes
 
 
 class nconv(nn.Module):
