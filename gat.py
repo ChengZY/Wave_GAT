@@ -61,6 +61,8 @@ class GATConv(nn.Module):
         nn.init.xavier_uniform_(self.a.data, gain=1.414)
 
     def forward(self, x, edge_lists):
+        print('train')
+        print(x.shape)
         x = F.dropout(x, self.dropout, training=self.training)
         # h = torch.matmul(x, self.weight[0])
 
@@ -75,30 +77,43 @@ class GATConv(nn.Module):
                 out.append(x2)
                 x1 = x2
 
-            h = torch.cat(h1, dim=1)
+                h = torch.cat(h1, dim=1)
 
-            edge_list_ix = (edge_list > 0).nonzero().t()
-            source, target = edge_list_ix
-            '''OOM Here'''
-            a_input = torch.cat([h[source], h[target]], dim=1)
-            # e = F.leaky_relu(torch.matmul(a_input, self.a), negative_slope=self.alpha)
-            e = F.leaky_relu(torch.matmul(a_input, edge_list), negative_slope=self.alpha)
+                edge_list_ix = (edge_list > 0).nonzero().t()
+                source, target = edge_list_ix
 
-            N = h.size(0)
-            attention = -1e20*torch.ones([N, N], device=device, requires_grad=True)
-            attention[source, target] = e[:, 0]
-            attention = F.softmax(attention, dim=1)
-            attention = F.dropout(attention, self.dropout, training=self.training)
-            h = F.dropout(h, self.dropout, training=self.training)
-            h_prime = torch.matmul(attention, h)
-            print('here')
-            if self.bias is not None:
-                h_prime = h_prime + self.bias
-            h_primes.append(h_prime)
+                '''OOM Here'''
+                a_input = torch.cat([h[source], h[target]], dim=1)
+                print(self.a.shape)
+                print(edge_list.shape)
+                print(a_input.shape)
+
+                # a_input = torch.transpose(a_input, 1, 3)
+                # e = F.leaky_relu(torch.matmul(a_input, self.a), negative_slope=self.alpha)
+                # e = torch.transpose(e, 1, 3)
+                # print(e.shape)
+
+                # N = h.size(0)
+                # attention = -1e20*torch.ones([N, N], device=device, requires_grad=True)
+                # attention = torch.tensor(edge_list, device=device, requires_grad=True)
+                attention = edge_list
+                # attention[source, target] = e[:, 0]
+                attention = F.softmax(attention, dim=1)
+                attention = F.dropout(attention, self.dropout, training=self.training)
+                h = F.dropout(h, self.dropout, training=self.training)
+                h_prime = torch.matmul(attention, h)
+                print('here')
+                print(h_prime.shape)
+                ''''to do, align bias'''
+                # if self.bias is not None:
+                #     h_prime = h_prime + self.bias
+                h_primes.append(h_prime)
 
         h_primes = torch.cat(h_prime, dim=1)
-
         return h_primes
+
+
+        # return h_prime
 
 
 class nconv(nn.Module):
@@ -150,10 +165,10 @@ class GAT(nn.Module):
     def __init__(self,  c_in, c_out, dropout, support_len=3, order=2, nhid=32, nhead=8, nhead_out=1, alpha=0.2):
         super(GAT, self).__init__()
         # nfeat, nclass =  c_in, c_out
-        # self.attentions = [GATCon(c_in, nhid, dropout, support_len=3, order=2) for _ in range(nhead)]
-        # self.out_atts = [GATCon(nhid * nhead, c_out, dropout, support_len=3, order=2) for _ in range(nhead_out)]
-        self.attentions = [GATConv(c_in, nhid, dropout, alpha, support_len=3, order=2,bias=True) for _ in range(nhead)]
-        self.out_atts = [GATConv(nhid * nhead, c_out, dropout, alpha, support_len=3, order=2, bias=True) for _ in range(nhead_out)]
+        self.attentions = [GATCon(c_in, nhid, dropout, support_len=3, order=2) for _ in range(nhead)]
+        self.out_atts = [GATCon(nhid * nhead, c_out, dropout, support_len=3, order=2) for _ in range(nhead_out)]
+        # self.attentions = [GATConv(c_in, nhid, dropout, alpha, support_len=3, order=2,bias=None) for _ in range(nhead)]
+        # self.out_atts = [GATConv(nhid * nhead, c_out, dropout, alpha, support_len=3, order=2, bias=None) for _ in range(nhead_out)]
 
         for i, attention in enumerate(self.attentions):
             self.add_module('attention_{}'.format(i), attention)

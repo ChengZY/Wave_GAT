@@ -5,12 +5,12 @@ from torch.autograd import Variable
 import sys
 # from torch_geometric.nn import gcnconv
 from torch_geometric.nn import GCNConv
-from gat import GAT
+from torch_geometric.nn import GATConv
+from torch_geometric.utils import to_undirected
 
-#dilation_channels,residual_channels,dropout
-#in,output,dropoff
 
 class nconv(nn.Module):
+
     def __init__(self):
         super(nconv,self).__init__()
 
@@ -26,9 +26,56 @@ class linear(nn.Module):
     def forward(self,x):
         return self.mlp(x)
 
-# class gcn(nn.Module):
+class gcn(nn.Module):
+    def __init__(self,c_in,c_out,dropout,support_len=3,order=2, time =12):
+        super(gcn,self).__init__()
+        self.nconv = nconv()
+        c_in2 = (order*support_len+1)*c_in
+        self.mlp = linear(c_in2,c_out)
+        self.dropout = dropout
+        self.order = order
+
+        # self.conv1 = GCNConv(c_in, c_out)
+        self.gconv = nn.ModuleList()
+        for i in range(time):
+            #self.gconv.append(GCNConv(c_in, c_out)) #GCN
+            self.gconv.append(GATConv(c_in, 4, heads=8, dropout=dropout)) #GAT
+
+    def forward(self,x,support):
+        out = [x]
+        for a in support:
+            edge_index = (a > 0).nonzero().t()
+            row, col = edge_index
+            edge_weight = a[row, col]
+            x1 = self.gcn_st(x,edge_index = edge_index, edge_weight = edge_weight)
+            out.append(x1)
+            for k in range(2, self.order + 1):
+                x2 = self.gcn_st(x,edge_index = edge_index, edge_weight = edge_weight)
+                out.append(x2)
+                x1 = x2
+
+        h = torch.cat(out,dim=1)
+        h = self.mlp(h)
+        h = F.dropout(h, self.dropout, training=self.training)
+        return h
+
+    def gcn_st(self, x, edge_index, edge_weight):
+        inbs = []
+        edge_index = to_undirected(edge_index) #GCN
+        for i in range(x.shape[3]): #x.shape[3]
+            ina = x[:, :, :, i].transpose(1, 2)
+            # inb = self.gconv[i](ina,edge_index = edge_index, edge_weight = edge_weight) #GCN
+            inb = self.gconv[i](ina[0], edge_index=edge_index) #GAT
+            inb = inb.transpose(0,1).unsqueeze(-1).unsqueeze(0)
+            inbs.append(inb)
+
+        xb = torch.cat(inbs,dim=3)
+        return xb
+
+
+# class gcno(nn.Module):
 #     def __init__(self,c_in,c_out,dropout,support_len=3,order=2):
-#         super(gcn,self).__init__()
+#         super(gcno,self).__init__()
 #         self.nconv = nconv()
 #         c_in = (order*support_len+1)*c_in
 #         self.mlp = linear(c_in,c_out)
@@ -46,43 +93,9 @@ class linear(nn.Module):
 #                 x1 = x2
 #
 #         h = torch.cat(out,dim=1)
-#         h1 = h
 #         h = self.mlp(h)
-#         h2 = h
 #         h = F.dropout(h, self.dropout, training=self.training)
 #         return h
-
-
-class gcn1(nn.Module):
-    def __init__(self,c_in,c_out,dropout,support_len=3,order=2):
-        super(gcn1,self).__init__()
-        self.nconv = nconv()
-        c_in = (order*support_len+1)*c_in
-        self.mlp = linear(c_in,c_out)
-        self.dropout = dropout
-        self.order = order
-
-        self.conv1 = GCNConv(c_in, c_out, dropout)
-
-    def forward(self,x,support):
-        out = [x]
-        for a in support:
-            edge_index = (a > 0).nonzero().t()
-            row, col = edge_index
-            edge_weight = a[row, col]
-            x = x1
-            x1 = self.conv1(x,edge_index = edge_index, edge_weight=None)
-            out.append(x1)
-            for k in range(2, self.order + 1):
-                # x2 = self.conv1(x1,edge_index = edge_index, edge_weight=a)
-                x2 = self.conv1(x1, edge_index=edge_index, edge_weight=None)
-                out.append(x2)
-                x1 = x2
-
-        h = torch.cat(out,dim=1)
-        h = self.mlp(h)
-        h = F.dropout(h, self.dropout, training=self.training)
-        return h
 
 
 class gwnet(nn.Module):
@@ -159,8 +172,7 @@ class gwnet(nn.Module):
                 receptive_field += additional_scope
                 additional_scope *= 2
                 if self.gcn_bool:
-                    # self.gconv.append(GCNConv(dilation_channels,residual_channels,dropout))
-                    self.gconv.append(GAT(dilation_channels,residual_channels,dropout,support_len=self.supports_len))
+                    self.gconv.append(gcn(dilation_channels,residual_channels,dropout,support_len=self.supports_len))
 
 
 
